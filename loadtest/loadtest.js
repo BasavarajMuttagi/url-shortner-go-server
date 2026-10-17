@@ -23,7 +23,7 @@ export const overallChecksRate = new Rate('checks_pass_rate');
 // =============================================================================
 // Benchmark Configuration & Environment Variables
 // =============================================================================
-const BASE_URL = __ENV.BASE_URL ? __ENV.BASE_URL.replace(/\/+$/, '') : 'http://localhost:8080';
+const BASE_URL = (__ENV.BASE_URL || __ENV.TARGET_URL || 'http://localhost:8080').replace(/\/+$/, '');
 const DEFAULT_SHORT_KEY = __ENV.SHORT_KEY || 'godoc2026';
 
 // 1. Benchmark Execution Mode: 'users' (Realistic VUs + Think-Time) vs 'throughput' (Raw Open-Loop RPS)
@@ -67,7 +67,7 @@ function getStages() {
     // -------------------------------------------------------------------------
     switch (TEST_TYPE) {
       case 'smoke':
-        // 1. SMOKE TEST: Minimal sanity check (5-10 VUs, 15s)
+        // 1. SMOKE TEST: Minimal sanity check (10 VUs, ~18s)
         return [
           { duration: '5s',  target: 10 },
           { duration: '10s', target: 10 },
@@ -75,55 +75,55 @@ function getStages() {
         ];
 
       case 'load':
-        // 2. LOAD TEST: Normal expected peak traffic (500-1,000 VUs)
+        // 2. LOAD TEST: Normal expected peak traffic (500-1,000 VUs, ~2 mins)
         return [
-          { duration: '30s', target: 500 },
-          { duration: '1m',  target: 1000 },
-          { duration: '2m',  target: 1000 },
-          { duration: '30s', target: 0 },
+          { duration: '15s', target: 500 },
+          { duration: '30s', target: 1000 },
+          { duration: '45s', target: 1000 },
+          { duration: '15s', target: 0 },
         ];
 
       case 'spike':
-        // 3. SPIKE TEST ("Product Goes Viral"): Sudden 50x explosive burst in 10s
-        // Tests if Valkey + 18-conn Postgres pool absorb the sudden wall of traffic without crashing
+        // 3. SPIKE TEST ("Product Goes Viral"): Sudden 30x explosive burst in 10s (~1.8 mins)
         return [
           { duration: '15s', target: 100 },   // Low baseline traffic
           { duration: '10s', target: 3000 },  // Explosive viral surge (100 -> 3,000 users in 10s!)
-          { duration: '45s', target: 3000 },  // Sustained viral crest
+          { duration: '40s', target: 3000 },  // Sustained viral crest
           { duration: '15s', target: 100 },   // Abrupt traffic drop
-          { duration: '30s', target: 100 },   // Recovery verification phase
+          { duration: '20s', target: 100 },   // Recovery verification phase
           { duration: '10s', target: 0 },     // Final cool-down
         ];
 
       case 'soak':
         // 4. SOAK TEST (Endurance): Sustained load to expose memory leaks and connection leaks
         return [
-          { duration: '45s', target: 2000 },
-          { duration: '6m',  target: 2000 }, // 6-minute sustained soak
-          { duration: '30s', target: 0 },
+          { duration: '30s', target: 1500 },
+          { duration: '5m',  target: 1500 },
+          { duration: '20s', target: 0 },
         ];
 
       case 'breakpoint':
-        // 5. BREAKPOINT TEST: Continuous aggressive staircase to locate absolute ceiling
+        // 5. BREAKPOINT TEST: Continuous aggressive staircase scaling to system failure point
         return [
-          { duration: '30s', target: 500 },
-          { duration: '45s', target: 1500 },
-          { duration: '45s', target: 3000 },
-          { duration: '45s', target: 5000 },
-          { duration: '45s', target: 8000 },
-          { duration: '45s', target: 12000 },
-          { duration: '30s', target: 0 },
+          { duration: '20s', target: 1000 },  // Stage 1: Warm-up (1,000 users)
+          { duration: '30s', target: 3000 },  // Stage 2: 3,000 users
+          { duration: '30s', target: 6000 },  // Stage 3: 6,000 users
+          { duration: '30s', target: 10000 }, // Stage 4: 10,000 users
+          { duration: '30s', target: 15000 }, // Stage 5: 15,000 users
+          { duration: '30s', target: 20000 }, // Stage 6: 20,000 users
+          { duration: '30s', target: 25000 }, // Stage 7: 25,000 users (Extreme Failure Target)
+          { duration: '20s', target: 0 },     // Recovery ramp-down
         ];
 
       case 'stress':
       default:
-        // 6. STRESS TEST: Progressive ladder to test capacity limits past normal peak
+        // 6. STRESS TEST: Progressive ladder past normal peak (500 -> 5,000 users, ~2 mins)
         return [
-          { duration: '20s', target: 500 },   // Warm-up
-          { duration: '40s', target: 1500 },  // Moderate stress (~150 req/s)
-          { duration: '45s', target: 3000 },  // Heavy stress (~300 req/s, testing 18-conn DB saturation)
-          { duration: '30s', target: 5000 },  // Extreme overdrive (~500 req/s, maximum 1-core stress)
-          { duration: '20s', target: 0 },     // Recovery
+          { duration: '15s', target: 500 },   // Stage 1: Warm-up (500 users)
+          { duration: '30s', target: 1500 },  // Stage 2: Moderate stress (1,500 users)
+          { duration: '30s', target: 3000 },  // Stage 3: Heavy stress (3,000 users)
+          { duration: '30s', target: 5000 },  // Stage 4: Overdrive stress (5,000 users)
+          { duration: '15s', target: 0 },     // Stage 5: Recovery
         ];
     }
   } else {

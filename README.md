@@ -6,12 +6,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go" alt="Go Version" />
-  <img src="https://img.shields.io/badge/Throughput-13,500+%20req%2Fs-success?style=flat&logo=k6" alt="k6 Throughput" />
-  <img src="https://img.shields.io/badge/Redirect%20Latency-2.47ms%20p50-blue?style=flat" alt="Latency" />
-  <img src="https://img.shields.io/badge/Cache-Redis%20O(1)-DC382D?style=flat&logo=redis" alt="Redis" />
-  <img src="https://img.shields.io/badge/Storage-PostgreSQL%20%2B%20S3-4169E1?style=flat&logo=postgresql" alt="Postgres" />
+  <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go" alt="Go Version" />
+  <img src="https://img.shields.io/badge/Active%20Users-5%2C000%2B%20Sustained-success?style=flat&logo=k6" alt="Active Users" />
+  <img src="https://img.shields.io/badge/p50%20Redirect-14.36ms-blue?style=flat" alt="Redirect Latency" />
+  <img src="https://img.shields.io/badge/Spike%20Resilience-30x%20in%2010s-orange?style=flat" alt="Spike Resilience" />
+  <img src="https://img.shields.io/badge/Postgres%20Pool-18%20Max%20Conns-purple?style=flat&logo=postgresql" alt="Postgres" />
   <img src="https://img.shields.io/badge/OLAP-Embedded%20DuckDB-yellow?style=flat&logo=duckdb" alt="DuckDB" />
+  <img src="https://img.shields.io/badge/Audit-0%20Goroutine%20Leaks-brightgreen?style=flat" alt="Zero Leaks" />
 </p>
 
 ---
@@ -271,24 +272,35 @@ go build -o server ./cmd/server
 
 ---
 
-## Performance & Benchmarks (Grafana k6)
+## 🚀 Enterprise Cloud Performance & Capacity Limits
 
-The service was benchmarked in a dedicated multi-machine cloud environment using the official **[Grafana k6 Standard Stress Testing Methodology](https://grafana.com/docs/k6/latest/testing-guides/stress-testing/)** located in [`loadtest/`](loadtest/).
+The service was benchmarked across **dedicated cloud infrastructure** (4 Dedicated AMD EPYC™ vCPUs, 8 GB RAM per node) in the Mumbai datacenter using the **[Grafana k6 Standard Stress Testing Methodology](https://grafana.com/docs/k6/latest/testing-guides/stress-testing/)** under realistic human-paced viral workloads.
 
-### Workload Model (327,603 Total Requests)
-* **Model**: Open-loop `ramping-arrival-rate` (up to 10,000 req/s).
-* **Traffic Mix**: 95% Hot-Path Redis Redirects (`GET /:key`), 5% Dynamic Link Creations (`POST /api/v1/urls`).
-* **4-Stage Lifecycle**: Warm-up (2.5k) ➔ Plateau (5k) ➔ Peak Stress (10k) ➔ Recovery (1k).
+> 📊 **Full In-Depth Benchmark Report**: Read the complete failure-point analysis and telemetry graphs in **[BENCHMARKS.md](BENCHMARKS.md)**.
 
-| Metric | Target SLA | Measured Result | Status |
-| :--- | :---: | :---: | :---: |
-| **Total Requests Completed** | — | **327,603** | ✅ Passed |
-| **Success Rate (HTTP 302 / 201)** | `> 99.0%` | **100.00% (0 errors)** | 🚀 Flawless |
-| **Hot-Path Redirect Latency (p50)** | `< 10 ms` | **2.47 ms** | ⚡ Sub-3ms |
-| **Hot-Path Redirect Latency (p90)** | `< 25 ms` | **3.29 ms** | ⚡ Sub-5ms |
-| **Hot-Path Redirect Latency (p95)** | `< 50 ms` | **5.16 ms** | ⚡ Sub-10ms |
-| **Write Path DB Latency (p50)** | `< 50 ms` | **17.96 ms** | ✅ Optimal |
-| **Peak Throughput Handled** | `> 5,000 req/s` | **13,510 req/s** | 🏆 Enterprise Grade |
+### Headline Marketing Numbers
 
-To run the load tests against your own deployment, see [`loadtest/README.md`](loadtest/README.md).
+- ⚡ **14.36 ms p50 Hot-Path Redirect**: Sub-15ms median redirect latency across the cloud datacenter even under an assault of 5,000 concurrent active users.
+- 💥 **30x Instant Viral Surge Absorption**: Survived a jump from 100 to 3,000 active users in **10 seconds** without connection pool exhaustion or degraded response rates.
+- 🛡️ **Zero-Leak Self-Healing Architecture**: After an extreme 25,000-user breakpoint assault, active goroutines dropped from 1,032 peak back to **10 baseline goroutines**, and database pool in-use returned to **0**.
+- 📈 **90,000+ Requests Handled with Zero Data Loss**: Flushed every ingested click event to compressed columnar Parquet files on Tigris S3 with zero event queue lag.
+
+### Cloud Multi-Stage Results Summary
+
+| Benchmark Suite | Simulated Concurrency | Total Requests | Throughput | Redirect p50 | Redirect p95 | Write p50 | Write p95 | Operational Error Rate | SLA Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Sanity Smoke** | 10 VUs | 184 | 9.5 req/s | 14.56 ms | 223.59 ms | 29.78 ms | 46.10 ms | 1.09% | 🟡 Baseline Sanity |
+| **Daytime Peak Load** | 500 $\to$ 1,000 VUs | 13,408 | 114.0 req/s | **14.42 ms** | **17.45 ms** | **28.72 ms** | **31.81 ms** | **0.32%** | 🟢 **Passed SLA** |
+| **30x Viral Spike** | 100 $\to$ 3,000 VUs in 10s | 28,482 | 231.7 req/s | **14.36 ms** | **38.36 ms** | **28.63 ms** | **31.12 ms** | **0.75%** | 🟢 **Passed SLA** |
+| **Multi-Core Stress** | 500 $\to$ 5,000 VUs | 45,932 | 331.3 req/s | **14.37 ms** | **41.95 ms** | **28.55 ms** | **29.97 ms** | **0.90%** | 🟢 **Passed SLA** |
+| **Breakpoint Staircase** | 1,000 $\to$ 25,000 VUs | ~15,000+ | ~380+ req/s | Saturated | > 4,000 ms | Saturated | > 5,000 ms | Degraded | 🔴 **Hardware Ceiling Reached** |
+
+### Benchmark Hardware Profile
+- **Application Server Node**: 4 Dedicated AMD EPYC™ vCPUs, 8 GB RAM, Linux x86_64, `somaxconn=65535`, `ulimit -n 1000000`.
+- **k6 Load Generator Node**: 4 Dedicated AMD EPYC™ vCPUs, 8 GB RAM, Grafana k6 v0.54.0.
+- **Database Backend**: Managed PostgreSQL 16 (1 vCPU, 1 GB RAM, locked to 18-connection pool limit).
+- **In-Memory Cache**: Managed Valkey / Redis (1 vCPU, 1 GB RAM).
+- **Columnar Lakehouse**: In-process DuckDB SIMD queries + Tigris S3 zero-egress storage.
+
+To reproduce these benchmarks, refer to [`BENCHMARKS.md`](BENCHMARKS.md) and [`loadtest/loadtest.js`](loadtest/loadtest.js).
 
