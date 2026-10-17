@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 	"url-shortener/internal/config"
 	"url-shortener/internal/helpers"
 )
@@ -20,6 +22,8 @@ type Server struct {
 	rdb      *redis.Client
 	duckLake *helpers.DuckLakeEngine
 	parser   *helpers.HeaderParser
+	sf       singleflight.Group
+
 }
 
 // NewServer builds and configures the Gin engine with direct DB, Redis, and DuckLake engine.
@@ -89,11 +93,24 @@ func (s *Server) setupRoutes() {
 
 		// Analytics
 		v1.GET("/urls/:id/analytics", s.getAnalytics)
+
+		// Cache Purge for Testing & Invalidation
+		v1.DELETE("/cache/:shortKey", s.purgeCache)
 	}
 
 	// Visitor Hot Path (Instant 302 Found)
 	s.router.GET("/:shortKey", s.handleRedirect)
 }
+
+// purgeCache handles DELETE /api/v1/cache/:shortKey (invalidates Redis cache for stampede testing).
+func (s *Server) purgeCache(c *gin.Context) {
+	shortKey := strings.Trim(strings.TrimSpace(c.Param("shortKey")), "/")
+	if s.rdb != nil && shortKey != "" {
+		_ = s.rdb.Del(c.Request.Context(), "url:"+shortKey).Err()
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "purged", "key": shortKey})
+}
+
 
 // Router returns the configured Gin router.
 func (s *Server) Router() *gin.Engine {

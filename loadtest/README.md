@@ -1,75 +1,85 @@
-# ⚡ Grafana k6 Load Testing Suite
+# ⚡ Enterprise Grafana k6 Benchmark Suite
 
-This directory contains the production load testing suite for the URL shortener service, following the **[Grafana k6 Standard Stress Testing Methodology](https://grafana.com/docs/k6/latest/testing-guides/stress-testing/)**.
+This directory contains the production-grade benchmark suite for the URL shortener service, implementing the **6 canonical named load testing types** used by enterprise performance engineering teams to test hardware utilization on cloud tiers:
+- **Valkey (Redis)**: 1 vCPU / 1 GB RAM (Aiven Cloud)
+- **PostgreSQL**: 1 vCPU / 1 GB RAM / 1 GB storage, tuned to utilize **18 of 20 maximum connections** with warm idle pools.
 
----
-
-## Workload Model & Test Lifecycle
-
-* **Execution Model**: Open-loop `ramping-arrival-rate` to simulate realistic internet traffic arrivals regardless of server latency.
-* **Traffic Mix**:
-  * **95% Hot-Path Redirects**: `GET /:shortKey` (exercises Redis $O(1)$ memory lookup, async telemetry channel).
-  * **5% Dynamic URL Creations**: `POST /api/v1/urls` (exercises PostgreSQL ACID transaction writes and Redis cache population).
-* **4-Stage Lifecycle**:
-  1. **Stage 1 (Warm-up)**: 0 → 2,500 req/s (15s)
-  2. **Stage 2 (Production Plateau)**: 2,500 → 5,000 req/s (20s)
-  3. **Stage 3 (Peak Overdrive)**: 5,000 → 10,000 req/s (20s)
-  4. **Stage 4 (Recovery)**: 10,000 → 1,000 req/s (15s)
+A single master file ([loadtest.js](file:///Users/basavarajmuttagi/Desktop/Scalable Backends/url-shortner/loadtest/loadtest.js)) tests every endpoint, exercises every architectural path, and maps system limits.
 
 ---
 
-## Prerequisites
+## 🏛️ The 6 Industry Standard Named Tests & What We Infer
 
-Install [k6](https://k6.io/docs/get-started/installation/):
+| Named Test Type | What It Does (Traffic Pattern) | Why Companies Use It | What We Infer From The Results |
+| :--- | :--- | :--- | :--- |
+| **1. `smoke`** *(Smoke Test)* | 10 VUs for 15s. Minimal load across all routes. | Sanity check before committing code or running heavy benchmarks. | **Service Health**: Validates that DB migrations, Valkey cache, S3 analytics, and all HTTP handlers return expected status codes without panics. |
+| **2. `load`** *(Average Load)* | Ramps to 1,000 VUs and holds for 2 minutes. | Simulates expected normal daytime peak traffic. | **Baseline SLA**: Verifies that under regular operations, response times easily satisfy $\text{p}95 < 50\text{ ms}$ with zero errors. |
+| **3. `stress`** *(Stress Test)* | Stepped ladder: 500 $\rightarrow$ 1,500 $\rightarrow$ 3,000 $\rightarrow$ 5,000 VUs. | Tests behavior beyond expected capacity. | **Inflection Point**: Reveals where PostgreSQL connection queues or Valkey CPU start to saturate and where latency begins degrading. |
+| **4. `spike`** *(Viral Event)* | Low baseline (100 VUs) $\rightarrow$ **explosive 3,000 VU surge in 10s** $\rightarrow$ abrupt drop $\rightarrow$ recovery. | Simulates a product going viral on Hacker News or Twitter. | **Shock Absorption & Recovery**: Confirms the 18-connection PostgreSQL pool absorbs sudden write waves without connection refused errors, and recovers immediately. |
+| **5. `soak`** *(Endurance)* | Sustained 2,000 VUs held continuously for 6+ minutes. | Exposes slow degradation that short bursts hide. | **Leak Detection**: Verifies zero memory leaks on 1 GB RAM, no goroutine accumulation, and no unreturned database connections. |
+| **6. `breakpoint`** *(Breaking Point)* | Continuous staircase ramp up to 12,000+ VUs until the server fails. | Capacity planning and scaling limits. | **Hardware Ceiling**: Mapped absolute maximum throughput that 1 CPU Valkey + 1 CPU Postgres can physically process. |
+
+---
+
+## 🔥 "What If The Product Went Viral?" — Workload Profiles
+
+In real viral events, users don't just click links; thousands of users and automated bots simultaneously create and share new links. You can toggle the traffic distribution using `WORKLOAD`:
+
+### 1. `WORKLOAD=viral` (Default — 50% Writes / 50% Reads)
+* **45% Dynamic URL Creations (`POST /api/v1/urls`)**: Intense PostgreSQL ACID write pressure, keeping all 18 DB connections saturated and pre-warming Valkey.
+* **45% Hot-Path Redirects (`GET /:shortKey`)**: Valkey in-memory $O(1)$ lookups + async analytics.
+* **5% Metadata Lookups (`GET /api/v1/urls/:id`)**: Creators inspecting dashboard details.
+* **3% 404 Penetration Attacks (`GET /missing-...`)**: Deflected by negative caching (`NOT_FOUND` cached 2m).
+* **1% Chaos Cache Stampede Purges (`DELETE /api/v1/cache/:shortKey`)**: Validates `singleflight.Group` under peak write-and-read load.
+* **1% Lakehouse Analytics (`GET /.../analytics`)**: DuckDB OLAP aggregations.
+
+### 2. `WORKLOAD=balanced` (Standard Daytime)
+75% Reads / 15% Writes / 5% Metadata / 3% Penetration / 1% Purge / 1% Analytics.
+
+### 3. `WORKLOAD=readheavy` (Read-Dominated Scale)
+90% Reads / 6% Writes / 2% Metadata / 2% Penetration.
+
+---
+
+## 🎮 Execution Modes
+
+* **`MODE=users` (Default — Arjay McCandless Methodology)**:
+  Simulates real human sessions with randomized think-times (`sleep 2–10s`). Each user generates $\sim 0.1\text{ to }0.15\text{ req/s}$, directly answering: *"How many concurrent users can our $12 server support?"*
+* **`MODE=throughput`**:
+  Open-loop machine-gun request bombardment with 0 think-time, testing maximum raw network/cache pipe saturation.
+
+---
+
+## 🚀 How to Run the Named Tests
 
 ```bash
-# macOS
-brew install k6
+# 1. Quick Smoke Test (Sanity check)
+TEST_TYPE=smoke k6 run loadtest/loadtest.js
 
-# Linux (Debian/Ubuntu)
-sudo gpg -k
-sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D34EEEA1
-echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-sudo apt-get update && sudo apt-get install -y k6
+# 2. Viral Spike Test (Simulate going viral with 50% writes)
+TEST_TYPE=spike WORKLOAD=viral k6 run loadtest/loadtest.js
 
-# Docker
-docker run --rm -i grafana/k6 run - <loadtest.js
+# 3. Progressive Stress Test (Find capacity limits)
+TEST_TYPE=stress WORKLOAD=viral k6 run loadtest/loadtest.js
+
+# 4. Long Soak Test (6-minute memory leak detection)
+TEST_TYPE=soak k6 run loadtest/loadtest.js
+
+# 5. Breakpoint Test (Locate absolute breaking point)
+TEST_TYPE=breakpoint k6 run loadtest/loadtest.js
+
+# 6. Raw RPS Bombardment (Open-loop throughput test)
+MODE=throughput TEST_TYPE=stress k6 run loadtest/loadtest.js
+
+# 7. Remote Cloud Target
+BASE_URL="http://your-server-ip:8080" TEST_TYPE=spike k6 run loadtest/loadtest.js
 ```
 
 ---
 
-## Running the Benchmarks
+## 🎯 Enterprise Service Level Objectives (SLOs)
 
-### 1. Default Run (Targeting Localhost)
-```bash
-k6 run loadtest/loadtest.js
-```
-
-### 2. Targeting a Remote Server
-```bash
-BASE_URL="http://your-server-ip:8080" k6 run loadtest/loadtest.js
-```
-
-### 3. Targeting a Specific Short Key
-```bash
-BASE_URL="http://your-server-ip:8080" SHORT_KEY="godoc2026" k6 run loadtest/loadtest.js
-```
-
-### 4. Customizing Virtual Users (VUs)
-```bash
-PRE_VUS=500 MAX_VUS=6000 BASE_URL="http://your-server-ip:8080" k6 run loadtest/loadtest.js
-```
-
----
-
-## Benchmark Results Reference (4 vCPUs AMD EPYC, 8 GB RAM)
-
-| Metric | Target SLA | Measured Result | Status |
-| :--- | :---: | :---: | :---: |
-| **Total Requests Completed** | — | **327,603** | ✅ Passed |
-| **Success Rate (HTTP 302 / 201)** | `> 99.0%` | **100.00% (0 errors)** | 🚀 Flawless |
-| **Hot-Path Redirect Latency (p50)** | `< 10 ms` | **2.47 ms** | ⚡ Sub-3ms |
-| **Hot-Path Redirect Latency (p90)** | `< 25 ms` | **3.29 ms** | ⚡ Sub-5ms |
-| **Hot-Path Redirect Latency (p95)** | `< 50 ms` | **5.16 ms** | ⚡ Sub-10ms |
-| **Write Path DB Latency (p50)** | `< 50 ms` | **17.96 ms** | ✅ Optimal |
-| **Peak Throughput Handled** | `> 5,000 req/s` | **13,510 req/s** | 🏆 Enterprise Grade |
+* **Global p95 Latency**: $< 500\text{ ms}$
+* **Global p99 Latency**: $< 1,000\text{ ms}$ ($1\text{ second}$)
+* **Operational Failure Rate**: $< 1.0\%$
+* **Assertion Reliability**: $> 99.0\%$

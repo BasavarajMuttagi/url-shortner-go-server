@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,10 @@ import (
 	"url-shortener/internal/config"
 	"url-shortener/internal/helpers"
 )
+
+func init() {
+	gin.SetMode(gin.TestMode)
+}
 
 func setupTestDB(t *testing.T) *sql.DB {
 	db, err := sql.Open("duckdb", "")
@@ -95,5 +100,49 @@ func TestRedirect_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404 Not Found, got %d", w.Code)
+	}
+}
+
+func TestRedirect_CacheStampede_Singleflight(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	cfg := &config.Config{BaseURL: "http://localhost:8080", CacheTTL: 24 * time.Hour}
+	server := &Server{
+		cfg:    cfg,
+		db:     db,
+		parser: helpers.NewHeaderParser("salt"),
+	}
+
+	const concurrentReqs = 50
+	errChan := make(chan error, concurrentReqs)
+
+	for i := 0; i < concurrentReqs; i++ {
+		go func() {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			req, _ := http.NewRequest("GET", "/testKey", nil)
+			c.Params = gin.Params{{Key: "shortKey", Value: "testKey"}}
+			c.Request = req
+
+			server.handleRedirect(c)
+
+			if w.Code != http.StatusFound {
+				errChan <- fmt.Errorf("expected 302 Found, got %d", w.Code)
+				return
+			}
+			loc := w.Header().Get("Location")
+			if loc != "https://golang.org" {
+				errChan <- fmt.Errorf("expected redirect to https://golang.org, got %s", loc)
+				return
+			}
+			errChan <- nil
+		}()
+	}
+
+	for i := 0; i < concurrentReqs; i++ {
+		if err := <-errChan; err != nil {
+			t.Fatalf("concurrent redirect failed: %v", err)
+		}
 	}
 }

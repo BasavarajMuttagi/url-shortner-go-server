@@ -1,6 +1,18 @@
-# Ultra-Fast URL Shortener & Columnar Analytics Lakehouse
+# ⚡ Scalable URL Shortener & DuckLake Analytics Engine
 
-A high-performance URL shortener built with **Go (Gin)**, **Redis**, **PostgreSQL**, **Tigris S3** (`t3.storage.dev`), and an in-process **DuckLake + DuckDB** analytical data lakehouse. Structured with a clean **Next.js-style architecture** separating HTTP API routes from reusable helpers and storage engines.
+<p align="center">
+  <b>A high-throughput, sub-3ms URL shortener & real-time columnar analytics lakehouse built in Go.</b><br>
+  <i>Powered by Gin, Redis O(1) Cache, PostgreSQL (UUIDv7), Embedded DuckDB & Tigris S3 Parquet Storage</i>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go" alt="Go Version" />
+  <img src="https://img.shields.io/badge/Throughput-13,500+%20req%2Fs-success?style=flat&logo=k6" alt="k6 Throughput" />
+  <img src="https://img.shields.io/badge/Redirect%20Latency-2.47ms%20p50-blue?style=flat" alt="Latency" />
+  <img src="https://img.shields.io/badge/Cache-Redis%20O(1)-DC382D?style=flat&logo=redis" alt="Redis" />
+  <img src="https://img.shields.io/badge/Storage-PostgreSQL%20%2B%20S3-4169E1?style=flat&logo=postgresql" alt="Postgres" />
+  <img src="https://img.shields.io/badge/OLAP-Embedded%20DuckDB-yellow?style=flat&logo=duckdb" alt="DuckDB" />
+</p>
 
 ---
 

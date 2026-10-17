@@ -16,10 +16,13 @@ import (
 
 // DuckLakeEngine manages embedded DuckDB OLAP queries and Tigris S3 Parquet flushes.
 type DuckLakeEngine struct {
-	duckDB *sql.DB
-	pgDB   *sql.DB
-	mu     sync.RWMutex
-	cfg    *config.Config
+	duckDB    *sql.DB
+	pgDB      *sql.DB
+	mu        sync.RWMutex
+	cfg       *config.Config
+	eventChan chan models.ClickEvent
+	stopChan  chan struct{}
+	wg        sync.WaitGroup
 }
 
 // NewDuckLakeEngine initializes the embedded DuckDB engine, loads httpfs,
@@ -32,15 +35,20 @@ func NewDuckLakeEngine(ctx context.Context, cfg *config.Config, pgDB *sql.DB) (*
 	duckDB.SetMaxOpenConns(1)
 
 	engine := &DuckLakeEngine{
-		duckDB: duckDB,
-		pgDB:   pgDB,
-		cfg:    cfg,
+		duckDB:    duckDB,
+		pgDB:      pgDB,
+		cfg:       cfg,
+		eventChan: make(chan models.ClickEvent, 50000),
+		stopChan:  make(chan struct{}),
 	}
 
 	if err := engine.initDuckDB(ctx); err != nil {
 		_ = duckDB.Close()
 		return nil, err
 	}
+
+	engine.wg.Add(1)
+	go engine.workerLoop()
 
 	return engine, nil
 }
@@ -380,8 +388,64 @@ func (e *DuckLakeEngine) queryDimension(ctx context.Context, table, column strin
 	return results
 }
 
-// Close closes the embedded DuckDB connection.
+// Ingest buffers a click event into the asynchronous ingestion ring-buffer without blocking HTTP redirects.
+func (e *DuckLakeEngine) Ingest(ev models.ClickEvent) {
+	select {
+	case e.eventChan <- ev:
+	default:
+		// Drop under extreme surge to protect hot-path redirect latency
+	}
+}
+
+func (e *DuckLakeEngine) workerLoop() {
+	defer e.wg.Done()
+
+	interval := e.cfg.BatchInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	batchSize := e.cfg.BatchSize
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	batch := make([]models.ClickEvent, 0, batchSize)
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		toFlush := batch
+		batch = make([]models.ClickEvent, 0, batchSize)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_ = e.FlushBatch(ctx, toFlush)
+		cancel()
+	}
+
+	for {
+		select {
+		case ev := <-e.eventChan:
+			batch = append(batch, ev)
+			if len(batch) >= batchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		case <-e.stopChan:
+			flush()
+			return
+		}
+	}
+}
+
+// Close gracefully flushes pending events and closes the embedded DuckDB connection.
 func (e *DuckLakeEngine) Close() error {
+	close(e.stopChan)
+	e.wg.Wait()
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.duckDB != nil {
