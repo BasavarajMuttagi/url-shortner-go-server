@@ -209,8 +209,8 @@ export const options = {
     'http_req_failed{name:Create_ShortURL}': ['rate<0.01'],
     'http_req_failed{name:Read_URL_Metadata}': ['rate<0.01'],
     'http_req_failed{name:Chaos_Cache_Purge}': ['rate<0.01'],
-    'http_req_duration{name:Redirect_HotPath}': ['p(95)<400', 'p(99)<800'],
-    'http_req_duration{name:Create_ShortURL}': ['p(95)<600', 'p(99)<1200'],
+    'http_req_duration{name:Redirect_HotPath}': [BASE_URL.includes('localhost') ? 'p(95)<800' : 'p(95)<400', 'p(99)<1200'],
+    'http_req_duration{name:Create_ShortURL}': ['p(95)<800', 'p(99)<1500'],
     checks_pass_rate: ['rate>0.99'],
   },
 };

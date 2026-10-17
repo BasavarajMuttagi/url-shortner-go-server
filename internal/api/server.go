@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -16,14 +17,14 @@ import (
 
 // Server encapsulates the HTTP router, database connections, and Lakehouse analytics.
 type Server struct {
-	router   *gin.Engine
-	cfg      *config.Config
-	db       *sql.DB
-	rdb      *redis.Client
-	duckLake *helpers.DuckLakeEngine
-	parser   *helpers.HeaderParser
-	sf       singleflight.Group
-
+	router    *gin.Engine
+	cfg       *config.Config
+	db        *sql.DB
+	rdb       *redis.Client
+	duckLake  *helpers.DuckLakeEngine
+	parser    *helpers.HeaderParser
+	sf        singleflight.Group
+	startTime time.Time
 }
 
 // NewServer builds and configures the Gin engine with direct DB, Redis, and DuckLake engine.
@@ -60,12 +61,13 @@ func NewServer(
 	})
 
 	s := &Server{
-		router:   router,
-		cfg:      cfg,
-		db:       db,
-		rdb:      rdb,
-		duckLake: duckLake,
-		parser:   parser,
+		router:    router,
+		cfg:       cfg,
+		db:        db,
+		rdb:       rdb,
+		duckLake:  duckLake,
+		parser:    parser,
+		startTime: time.Now().UTC(),
 	}
 
 	s.setupRoutes()
@@ -82,9 +84,15 @@ func (s *Server) setupRoutes() {
 		})
 	})
 
+	// Live System & DB Pool Metrics
+	s.router.GET("/metrics", s.getMetrics)
+
 	// API v1
 	v1 := s.router.Group("/api/v1")
 	{
+		// Live System & DB Pool Metrics
+		v1.GET("/metrics", s.getMetrics)
+
 		// URL CRUD
 		v1.POST("/urls", s.createURL)
 		v1.GET("/urls/:id", s.getURL)

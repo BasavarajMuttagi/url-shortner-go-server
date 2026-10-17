@@ -236,6 +236,39 @@ go build -o server ./cmd/server
   }
   ```
 
+### 8. System & Database Pool Metrics
+`GET /metrics` (or `GET /api/v1/metrics`)
+- **Response**: `200 OK`
+  ```json
+  {
+    "timestamp": "2026-10-17T10:32:36Z",
+    "uptime_seconds": 3600.5,
+    "runtime": {
+      "goroutines": 42,
+      "alloc_mb": 14.2,
+      "heap_in_use_mb": 16.5,
+      "num_gc": 8
+    },
+    "database_pool": {
+      "max_open_connections": 18,
+      "open_connections": 18,
+      "in_use": 6,
+      "idle": 12,
+      "wait_count": 0,
+      "wait_duration_ms": 0
+    },
+    "cache": {
+      "status": "connected",
+      "hits": 142050,
+      "misses": 52
+    },
+    "lakehouse": {
+      "buffered_events": 4,
+      "buffer_capacity": 50000
+    }
+  }
+  ```
+
 ---
 
 ## Performance & Benchmarks (Grafana k6)

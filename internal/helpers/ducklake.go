@@ -397,6 +397,14 @@ func (e *DuckLakeEngine) Ingest(ev models.ClickEvent) {
 	}
 }
 
+// BufferStats returns the number of currently queued click events and total channel capacity.
+func (e *DuckLakeEngine) BufferStats() (int, int) {
+	if e == nil || e.eventChan == nil {
+		return 0, 0
+	}
+	return len(e.eventChan), cap(e.eventChan)
+}
+
 func (e *DuckLakeEngine) workerLoop() {
 	defer e.wg.Done()
 
