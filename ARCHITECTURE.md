@@ -39,7 +39,7 @@ Link Owner ──> GET /api/v1/urls/:id/analytics (Gin Engine)
 flowchart TD
     subgraph Traffic ["1. Hot Path: Visitor Redirection"]
         Visitor([Visitor]) -->|GET /:shortKey| GinEngine[Gin HTTP Router\ninternal/api/redirect.go]
-        GinEngine -->|1. O(1) Key Lookup| RedisCache[(Redis Cache\nUpstash)]
+        GinEngine -->|1. O(1) Key Lookup| RedisCache[(Valkey Cache\nAiven)]
         RedisCache -.->|Cache Miss Fallback| PostgresOLTP[(PostgreSQL OLTP\nAiven)]
         GinEngine -->|Instant 302 Found| Visitor
     end
@@ -75,8 +75,8 @@ flowchart TD
 
 | Component | Technology | Primary Function | Performance Characteristics |
 | :--- | :--- | :--- | :--- |
-| **Cache Layer** | **Redis** | Stores `url:{shortKey} -> {id}|{originalUrl}` with configurable TTL. | Sub-millisecond reads (<1ms), $O(1)$ memory lookup. |
-| **OLTP Layer** | **PostgreSQL** | Stores `users` and `urls` relational data, operational CRUD, and authentication. | Direct connection limit (max 10 open connections) to respect Aiven free-tier connection limits (20 max). |
+| **Cache Layer** | **Valkey / Redis** | Stores `url:{shortKey} -> {id}|{originalUrl}` with configurable TTL. | Sub-millisecond reads (<1ms), $O(1)$ memory lookup. |
+| **OLTP Layer** | **PostgreSQL 16** | Stores `users` and `urls` relational data, operational CRUD, and authentication. | Direct connection limit (max 18 open connections) tuned for Aiven PostgreSQL (20 max). |
 | **Data Lake** | **Tigris S3** (`t3.storage.dev`) | Immutable, append-only Apache Parquet files partitioned by `date` and `url_id`. | Zero-egress cost, high-throughput distributed object store with Zstandard compression. |
 | **Catalog Format** | **DuckLake** | PostgreSQL-backed ACID catalog tracking table snapshots, Parquet file paths, zone maps (min/max), and partition ranges. | Eliminates small-file degradation, provides instant partition pruning and transactional isolation. |
 | **OLAP Engine** | **Embedded DuckDB** (`go-duckdb`) | In-process vectorized query engine querying remote Parquet files via `httpfs`. | Columnar projection, SIMD-accelerated aggregations, single-connection thread safety with zero network hops. |
@@ -215,6 +215,8 @@ referrer    VARCHAR
 │   │   ├── redirect.go       # Visitor redirection route
 │   │   ├── url.go            # URL CRUD routes
 │   │   ├── analytics.go      # Analytics report route
+│   │   ├── metrics.go        # Live system & database pool telemetry
+│   │   ├── metrics_test.go   # Metrics unit tests
 │   │   └── redirect_test.go  # Route unit tests
 │   │
 │   ├── helpers/              # Reusable helper methods & engines (like Next.js 'lib/')
@@ -242,6 +244,6 @@ referrer    VARCHAR
 ## 7. Reliability, Scalability & Performance Guarantees
 
 1. **Zero Redirect Penalty**: Redirection logic never waits on analytics writes or remote object storage. All telemetry logging happens asynchronously in background goroutines.
-2. **Connection Safety**: PostgreSQL connections are capped at 10 to strictly adhere to Aiven free-tier connection limits (20 max), preventing connection exhaustion.
+2. **Connection Safety**: PostgreSQL connections are capped at 18 to maximize throughput against Aiven's 20-connection ceiling (preserving 2 slots for DB administration).
 3. **Zero Egress Analytical Scans**: Parquet files are stored on Tigris S3 (`t3.storage.dev`), which charges zero egress fees, enabling frequent analytical queries without cloud bandwidth bills.
 4. **Vectorized Columnar Execution**: Embedded DuckDB executes analytical queries in-process, reading only relevant Parquet byte ranges over HTTP range requests, delivering sub-second analytics even across millions of click events.

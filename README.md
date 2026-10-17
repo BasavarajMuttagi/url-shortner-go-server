@@ -2,11 +2,11 @@
 
 <p align="center">
   <b>A high-throughput, sub-3ms URL shortener & real-time columnar analytics lakehouse built in Go.</b><br>
-  <i>Powered by Gin, Redis O(1) Cache, PostgreSQL (UUIDv7), Embedded DuckDB & Tigris S3 Parquet Storage</i>
+  <i>Powered by Gin, Valkey / Redis O(1) Cache, PostgreSQL 16 (UUIDv7 via pgx/v5), Embedded DuckDB & Tigris S3 Parquet Storage</i>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go" alt="Go Version" />
+  <img src="https://img.shields.io/badge/Go-1.27.2-00ADD8?style=flat&logo=go" alt="Go Version" />
   <img src="https://img.shields.io/badge/Active%20Users-5%2C000%2B%20Sustained-success?style=flat&logo=k6" alt="Active Users" />
   <img src="https://img.shields.io/badge/p50%20Redirect-14.36ms-blue?style=flat" alt="Redirect Latency" />
   <img src="https://img.shields.io/badge/Spike%20Resilience-30x%20in%2010s-orange?style=flat" alt="Spike Resilience" />
@@ -22,7 +22,7 @@
 ```
 Visitor ──> GET /:shortKey (Gin Engine)
                  │
-                 ├─► 1. Lookup originalUrl (Redis / Postgres) ──► Instant 302 Found
+                 ├─► 1. Lookup originalUrl (Valkey / Postgres) ──► Instant 302 Found
                  │
                  └─► 2. Asynchronous Fire-and-Forget (Lightweight Go Goroutine)
                                 │
@@ -51,7 +51,7 @@ Detailed architectural specifications and component breakdowns can be found in [
 url-shortener/
 ├── cmd/
 │   └── server/
-│       └── main.go           # 50-line clean application entrypoint
+│       └── main.go           # Clean application entrypoint
 │
 ├── internal/
 │   ├── api/                  # Like Next.js 'app/api/' - Pure HTTP route endpoints
@@ -59,6 +59,8 @@ url-shortener/
 │   │   ├── redirect.go       # Route: GET /:shortKey (instant 302 redirect)
 │   │   ├── url.go            # Route: /api/v1/urls (POST, GET, DELETE)
 │   │   ├── analytics.go      # Route: GET /api/v1/urls/:id/analytics
+│   │   ├── metrics.go        # Route: GET /metrics (Live telemetry & db.Stats)
+│   │   ├── metrics_test.go   # Metrics endpoint unit tests
 │   │   └── redirect_test.go  # Route unit tests
 │   │
 │   ├── helpers/              # Like Next.js 'helpers/' or 'lib/' - Helper methods & engines
@@ -71,11 +73,11 @@ url-shortener/
 │   │   └── models.go         # URL, User, ClickEvent, AnalyticsReport structs
 │   │
 │   ├── db/                   # PostgreSQL connection & migrations
-│   │   ├── db.go             # Max 10 connections for Aiven Free tier (20 limit)
+│   │   ├── db.go             # Max 18 direct connections tuned for Aiven PostgreSQL (20 ceiling)
 │   │   └── migrations.go     # ACID tables & default user seed
 │   │
-│   ├── cache/                # Redis connection client
-│   │   └── redis.go          # Redis client initializer
+│   ├── cache/                # Valkey / Redis connection client
+│   │   └── redis.go          # In-memory client initializer (go-redis/v9)
 │   │
 │   └── config/               # Environment configuration
 │       └── config.go         # Loads and validates .env

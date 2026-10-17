@@ -41,7 +41,7 @@ flowchart LR
 
     subgraph AppNode["Dedicated Application Node"]
         direction TB
-        CORE["Go 1.23.6 HTTP Engine (Gin)<br/>4 Dedicated AMD EPYC™ vCPUs<br/>8 GB RAM<br/>Embedded DuckDB Columnar Engine<br/>somaxconn=65535 | tcp_tw_reuse=1"]
+        CORE["Go 1.27.2 HTTP Engine (Gin)<br/>4 Dedicated AMD EPYC™ vCPUs<br/>8 GB RAM<br/>Embedded DuckDB Columnar Engine<br/>somaxconn=65535 | tcp_tw_reuse=1"]
         TELEMETRY["Live /metrics Telemetry Endpoint<br/>(db.Stats, Runtime Heap, Buffer Q)"]
     end
 
@@ -63,7 +63,7 @@ flowchart LR
   - **CPU**: 4 Dedicated AMD EPYC™ vCPUs
   - **RAM**: 8 GB High-Speed Memory
   - **OS / Kernel**: Linux x86_64 (`somaxconn=65535`, `tcp_tw_reuse=1`, `ulimit -n 1000000`)
-  - **Binary**: Native Go 1.23.6 binary compiled with CGO DuckDB embedded (`-ldflags="-s -w"`)
+  - **Binary**: Native Go 1.27.2 binary compiled with CGO DuckDB embedded (`-ldflags="-s -w"`)
 - **Load Generator Node**:
   - **CPU**: 4 Dedicated AMD EPYC™ vCPUs
   - **RAM**: 8 GB High-Speed Memory
